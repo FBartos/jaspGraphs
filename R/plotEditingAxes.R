@@ -38,29 +38,35 @@ getAxisType.ggplot <- function(x) {
 }
 
 getAxisTitle <- function(x, xory) {
+
+  if (isCoordFlipped(x[["layout"]][["coord"]]))
+    xory <- if (xory == "x") "y" else "x"
+
   title <- if (xory == "x") {
-    x[["layout"]][["panel_scales_x"]][[1L]][["name"]] %|NW|% x[["plot"]][["labels"]][["x"]]
+    x[["layout"]][["panel_scales_x"]][[1L]][["name"]] %|W|% x[["plot"]][["labels"]][["x"]]
   } else {
-    x[["layout"]][["panel_scales_y"]][[1L]][["name"]] %|NW|% x[["plot"]][["labels"]][["y"]]
+    x[["layout"]][["panel_scales_y"]][[1L]][["name"]] %|W|% x[["plot"]][["labels"]][["y"]]
   }
 
   # TODO: this could be an S3 method that dispatches on the class of the title. We should get an idea of what all allowed classes are somehow
-  if (is.call(title) || is.expression(title)) {
-    titleType <- "expression"
+  if (is.null(title)) {
+    titleType <- TitleType$Null
+  } else if (is.call(title)) {
+    titleType <- TitleType$Expression
     title     <- Reduce(paste, trimws(deparse(title)))
+  } else if (is.expression(title)) {
+    titleType <- TitleType$Expression
+    title     <- as.character(title) #Reduce(paste, trimws(deparse(title)))
   } else if (is.character(title)) {
-    titleType <- "character"
+    titleType <- TitleType$Character
   } else {
     titleTypeWarning(title)
-    titleType <- "character"
+    titleType <- TitleType$Character
     # this conversion may fail...
     tmp <- try(as.character(title))
     if (!inherits(tmp, "try-error"))
       title <- tmp
   }
-
-  if (titleType == "expression")
-    title <- Reduce(paste, trimws(deparse(title)))
 
   return(list(
     title     = title,
@@ -74,10 +80,6 @@ evenly_spaced <- function(x) {
   return(all((x[-length(x)] - x[-1L] - by) <= .Machine[["double.eps"]]))
 }
 
-getAxisInfo <- function(x, opts, ggbuild) {
-  UseMethod("getAxisInfo", x)
-}
-
 expand_default <- function(scale, discrete = c(0, 0.6, 0, 0.6), continuous = c(0.05, 0, 0.05, 0)) {
   # copy of ggplot2:::expand_default to please R CMD check about :::
   a <- scale$expand
@@ -89,38 +91,78 @@ expand_default <- function(scale, discrete = c(0, 0.6, 0, 0.6), continuous = c(0
     return(continuous)
 }
 
+getAxisInfo <- function(x, opts, ggbuild) {
+  UseMethod("getAxisInfo", x)
+}
+
 getAxisInfo.ScaleContinuousPosition <- function(x, opts, ggbuild) {
 
-  xory <- x[["aesthetics"]][1L]
+  xory <- getXorY(x, ggbuild)
 
   opts2keep <- list(
     labels = opts[[1]][[xory]][["get_labels"]](),
     breaks = opts[[1]][[xory]][["get_breaks"]](),
     limits = opts[[1]][[xory]][["get_limits"]](),
-    expand = x[["expand"]] %|W|% expand_default(x)
+    # x[["expand"]] does not take coord_flip() into account
+    expand = opts[[1]][[xory]][["scale"]][["expand"]] %|W|% expand_default(x)
   )
 
   opts2keep[c("title", "titleType")] <- getAxisTitle(ggbuild, xory)
 
-  if (anyNA(opts2keep[["breaks"]])) {
-    idx <- which(!is.na(opts2keep[["breaks"]]))
-    opts2keep[["breaks"]] <- opts2keep[["breaks"]][idx]
-    opts2keep[["labels"]] <- opts2keep[["labels"]][idx]
+  if (is.character(opts2keep[["breaks"]]) && !is.null(attr(opts2keep[["breaks"]], "pos")))
+    opts2keep[["breaks"]] <- attr(opts2keep[["breaks"]], "pos")
+
+  if (is.null(opts2keep[["breaks"]])) {
+
+    opts2keep[["breaksType"]] <- BreaksType$Null
+    opts2keep[["range"]]      <- "NULL" # TODO: fix this!
+    # set reasonable defaults for this
+    breaks <- getPrettyAxisBreaks(opts2keep[["limits"]])
+    opts2keep[["breaks"]] <- breaks
+    opts2keep[["labels"]] <- breaks
+
+  } else {
+
+    if (anyNA(opts2keep[["breaks"]])) {
+      idx <- which(!is.na(opts2keep[["breaks"]]))
+      opts2keep[["breaks"]] <- opts2keep[["breaks"]][idx]
+      opts2keep[["labels"]] <- opts2keep[["labels"]][idx]
+    }
+
+    # breaks need not be sorted, but the rest of the code assumes they are
+    ord <- order(opts2keep[["breaks"]])
+    opts2keep[["breaks"]] <- opts2keep[["breaks"]][ord]
+    opts2keep[["labels"]] <- opts2keep[["labels"]][ord]
+    breaks <- opts2keep[["breaks"]]
+
   }
 
-  breaks <- opts2keep[["breaks"]]
   from <- breaks[1L]
   to   <- breaks[length(breaks)]
-  by   <- (to - from) / (length(breaks) - 1)
+  by   <- if (length(breaks) > 1L) (to - from) / (length(breaks) - 1) else 0
 
   opts2keep[["range"]] <- c(from, to, by)
-  # this is ugly, but seq can crash in many ways..
-  opts2keep[["breaksType"]] <- tryCatch({
-    if (all(seq(from, to, by) == breaks)) "range" else "manual"
-  }, error = function(e) return("manual")
-  )
-  # opts2keep[["limitsType"]] <- if (all(range(breaks) == opts2keep[["limits"]])) "automatic" else "manual"
-  opts2keep[["limitsType"]] <- if (is.null(x[["limits"]])) "data" else "manual"
+  if (is.null(opts2keep[["breaksType"]])) { # only set this if breaks weren't NULL
+    # this tryCatch is ugly, but seq can crash in many ways..
+    opts2keep[["breaksType"]] <- tryCatch({
+      breaksValues <- seq(from, to, by)
+      condition <- all(
+        isTRUE(all.equal(seq(from, to, by), breaks)),
+        opts2keep[["labels"]] == as.character(breaksValues)
+      )
+      if (condition) "range" else "manual"
+    }, error = function(e) return("manual")
+    )
+  }
+
+  opts2keep[["limitsType"]] <-
+    if (is.null(x[["limits"]]))                                LimitsType$Data
+    else if (isTRUE(all.equal(range(breaks), x[["limits"]])))  LimitsType$Breaks
+    else                                                       LimitsType$Manual
+
+  # labels that are expressions are not supported yet, but are used in e.g., Bayes factor robustness plots
+  if (is.expression(opts2keep[["labels"]]))
+    opts2keep[["labels"]] <- as.character(opts2keep[["labels"]])
 
   return(opts2keep)
 
@@ -128,14 +170,29 @@ getAxisInfo.ScaleContinuousPosition <- function(x, opts, ggbuild) {
 
 getAxisInfo.ScaleDiscretePosition <- function(x, opts, ggbuild) {
 
-  xory <- x[["aesthetics"]][1L]
+  xory <- getXorY(x, ggbuild)
+
   opts2keep <- list(
     labels = x[["get_labels"]](),
-    shown  = x[["get_limits"]](),
+    # shown  = x[["get_limits"]](),
     title  = getAxisTitle(ggbuild, xory)
   )
+
   opts2keep[c("title", "titleType")] <- getAxisTitle(ggbuild, xory)
+
+  if (is.null(opts2keep[["breaksType"]]))
+
   return(opts2keep)
+
+}
+
+getXorY <- function(x, ggbuild) {
+
+  xory <- x[["aesthetics"]][1L]
+  if (isCoordFlipped(ggbuild[["layout"]][["coord"]]))
+    if (xory == "x") return("y") else return("x")
+
+  return(xory)
 
 }
 
@@ -147,23 +204,30 @@ internalUpdateAxis <- function(currentAxis, newSettings) {
 
 internalUpdateAxis.ScaleContinuousPosition <- function(currentAxis, newSettings) {
 
-  if (newSettings[["breaksType"]] == "range") {
+  if (newSettings[["breaksType"]] == BreaksType$Null) {
+     currentAxis[["breaks"]] <- NULL
+     currentAxis[["labels"]] <- NULL
+     # shouldn't be possible, but will do bad things if it happens
+     if (newSettings[["limitsType"]] == LimitsType$Breaks)
+       newSettings[["limitsType"]] <- LimitsType$Manual
+
+  } else if (newSettings[["breaksType"]] == BreaksType$Range) {
     tmp <- newSettings[["range"]]
     # zapsmall avoids floating point artefacts (e.g., try as.character(seq(-0.6, 0.2, 0.2)))
     currentAxis[["breaks"]] <- zapsmall(seq(tmp[1L], tmp[2L], tmp[3L]))
     currentAxis[["labels"]] <- as.character(currentAxis[["breaks"]])
   } else {
-    currentAxis[["breaks"]] <- sort(newSettings[["breaks"]])
+    # currentAxis[["breaks"]] <- sort(newSettings[["breaks"]])
+    currentAxis[["breaks"]] <- newSettings[["breaks"]]
     currentAxis[["labels"]] <- newSettings[["labels"]]
   }
 
-  if (newSettings[["limitsType"]] == "data") {
-    currentAxis[["limits"]] <- NULL
-  } else if (newSettings[["limitsType"]] == "breaks") {
-    currentAxis[["limits"]] <- range(currentAxis[["breaks"]])
-  } else if (newSettings[["limitsType"]] == "manual") {
-    currentAxis[["limits"]] <- newSettings[["limits"]]
-  }
+  currentAxis[["limits"]] <- switchEnum(newSettings[["limitsType"]], LimitsType,
+    Data   = NULL, # let ggplot2 figure it out
+    Breaks = range(currentAxis[["breaks"]]),
+    Manual = newSettings[["limits"]]
+  )
+
   # TODO: see if some plot element fall outside of the new limits, i.e., currentAxis[["range"]][["range"]] is wider than user limits
 
   if (!is.null(newSettings[["expand"]])) {
@@ -186,9 +250,17 @@ internalUpdateAxis.ScaleDiscretePosition <- function(currentAxis, newSettings) {
 }
 
 internalUpdateTitle <- function(titleType, title) {
-  return(switch(titleType,
-    "character"  = title,
-    "expression" = parse(text = title),
+  return(switchEnum(titleType, TitleType,
+    Null       = NULL,
+    Character  = title,
+    Expression = {
+      expr <- try(parse(text = title))
+      if (inherits(expr, "try-error")) {
+        warning("input was not a valid R expression, reinterpreting as character")
+        return(title)
+      }
+      return(expr)
+    },
     {
       titleTypeWarning(titleType)
       title
@@ -202,4 +274,18 @@ titleTypeWarning <- function(title) {
   else
     paste(class(title), collapse = ", ")
   warning(sprintf("Unknown title type: %s. I'm pretending it works as character and hope for the best...", msg))
+}
+
+remapPositionOfFlippedPlot <- function(position) {
+  # for a plot with ggplot2::coord_flip(), the scales are modified
+  # in particular, given
+  # scales <- ggbuild[["layout"]][["get_scales"]](1L)
+  # instead of scales$x$position == "bottom"
+  # we have scales$x$position == "left"
+  switch(position,
+    "top"  = "right",
+    "right" = "top",
+    "left" = "bottom",
+    "bottom" = "left"
+  )
 }

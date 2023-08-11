@@ -1,0 +1,20 @@
+on:
+  schedule:
+    - cron:  '10 3 * * 6'
+    
+  workflow_dispatch:
+
+name: generate-translations
+
+jobs:
+  generate-translations:
+    runs-on: ubuntu-latest
+    env:
+      REPO_KEY: ${{ secrets.REPOS_KEY }}
+      WEBLATE_KEY: ${{ secrets.WEBLATE_KEY }}
+      R_REPO: jaspgraphs
+
+    steps:
+      - uses: jasp-stats/jasp-actions/wlcLock@master
+
+      - uses: jasp-stats/jasp-actions/translations@master

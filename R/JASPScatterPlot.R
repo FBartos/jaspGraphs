@@ -15,10 +15,10 @@
 #' @param plotAbove type of plot above the scatter plot.
 #' @param plotRight type of plot right of the scatter plot.
 #' @param colorAreaUnderDensity Logical, should the area under the density be colored?
-#' @param alphaAreaUnderDensity Real in [0, 1], transparency for area under density.
+#' @param alphaAreaUnderDensity Real in \[0, 1\], transparency for area under density.
 #' @param showLegend Should the legend be shown?
 #' @param legendTitle A string for the title of the legend. \code{NULL} implies the legend is not shown.
-#' @param emulateGgMarginal Should the result be as similar as possible to \code{\link[ggExtra]{ggMarginal}}? Overwrites other parmeters.
+#' @param emulateGgMarginal Should the result be as similar as possible to \code{\link[ggExtra]{ggMarginal}}? Overwrites other parameters.
 #' @param ... passed to \code{\link{themeJaspRaw}}.
 #'
 #' @details The only change added when \code{emulateGgMarginal = TRUE} is that \code{ggplot2::theme(plot.margin = unit(c(0, 0, 0.25, 0.25), "cm"))}
@@ -127,7 +127,7 @@ JASPScatterSubPlot <- function(x, group = NULL, type = c("density", "histogram",
 
   if (type == "density") {
     foo <- function(x, ...) as.data.frame(stats::density(x, from = range[1L], to = range[2L])[c("x", "y")])
-    geom <- geom_line(size = 0.5, show.legend = FALSE)
+    geom <- geom_line(linewidth = 0.5, show.legend = FALSE)
     geom2 <- if (colorAreaUnderDensity) {
       geom_ribbon(aes(ymin = 0, ymax = .data$y), alpha = alpha)
     } else {
@@ -136,7 +136,13 @@ JASPScatterSubPlot <- function(x, group = NULL, type = c("density", "histogram",
 
     ans <- tapply(x, group, foo, simplify = FALSE)
     df <- do.call(rbind, ans)
-    df[["g"]] <- factor(rep(names(ans), vapply(ans, nrow, 1L)))
+
+    # fixes https://github.com/jasp-stats/jasp-issues/issues/1743, names should follow the order of the factor levels
+    nr <- vapply(ans, nrow, 1L)
+    df[["g"]] <- if (is.factor(group))
+      factor(rep(levels(group), nr), levels = levels(group))
+    else
+      factor(rep(names(ans), nr))
 
   } else {
     df <- data.frame(x = x, g = group)

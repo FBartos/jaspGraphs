@@ -5,12 +5,14 @@
 #' @param name see details
 #' @param breaks see details
 #' @param minor_breaks see details
+#' @param n.breaks see details
 #' @param labels see details
 #' @param limits see details
 #' @param expand see details
 #' @param oob see details
 #' @param na.value see details
 #' @param trans see details
+#' @param guide see details
 #' @param position see details
 #' @param sec.axis see details
 #' @details These functions are virtually identical to \code{\link[ggplot2]{scale_x_continuous}} and \code{\link[ggplot2]{scale_y_continuous}}
@@ -32,7 +34,7 @@ scale_x_continuous <- function(name = waiver(), breaks = getPrettyAxisBreaks, mi
                            n.breaks = n.breaks, minor_breaks = minor_breaks, labels = labels,
                            limits = limits, expand = expand, oob = oob, na.value = na.value,
                            trans = trans, guide = guide, position = position, super = ScaleContinuousPosition)
-    ggplot2:::set_sec_axis(sec.axis, sc)
+    set_sec_axis(sec.axis, sc)
 
   } else {
 
@@ -47,7 +49,7 @@ scale_x_continuous <- function(name = waiver(), breaks = getPrettyAxisBreaks, mi
       if (is.formula(sec.axis))
         sec.axis <- sec_axis(sec.axis)
       if (!is.sec_axis(sec.axis))
-        stop("Secondary axes must be specified using 'sec_axis()'")
+        stop2("Secondary axes must be specified using 'sec_axis()'")
       sc$secondary.axis <- sec.axis
     }
   }
@@ -57,6 +59,20 @@ scale_x_continuous <- function(name = waiver(), breaks = getPrettyAxisBreaks, mi
 
   sc
 }
+
+set_sec_axis <- function(sec.axis, scale) {
+  # copied from ggplot2:::set_sec_axis
+  # this function exists to please the R CMD check
+  if (!is.waive(sec.axis)) {
+    if (is.formula(sec.axis))
+      sec.axis <- sec_axis(sec.axis)
+    if (!is.sec_axis(sec.axis))
+      stop2("Secondary axes must be specified using 'sec_axis()'")
+    scale$secondary.axis <- sec.axis
+  }
+  return(scale)
+}
+
 
 #' @rdname scale_x_continuous
 #' @export
@@ -74,7 +90,7 @@ scale_y_continuous <- function(name = waiver(), breaks = getPrettyAxisBreaks, mi
                            limits = limits, expand = expand, oob = oob, na.value = na.value,
                            trans = trans, guide = guide, position = position, super = ScaleContinuousPosition)
 
-    ggplot2:::set_sec_axis(sec.axis, sc)
+    set_sec_axis(sec.axis, sc)
 
   } else {
     sc <- continuous_scale(c("y", "ymin", "ymax", "yend", "yintercept",
@@ -88,7 +104,7 @@ scale_y_continuous <- function(name = waiver(), breaks = getPrettyAxisBreaks, mi
       if (is.formula(sec.axis))
         sec.axis <- sec_axis(sec.axis)
       if (!is.sec_axis(sec.axis))
-        stop("Secondary axes must be specified using 'sec_axis()'")
+        stop2("Secondary axes must be specified using 'sec_axis()'")
       sc$secondary.axis <- sec.axis
     }
   }

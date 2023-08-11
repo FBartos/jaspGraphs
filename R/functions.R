@@ -1,3 +1,9 @@
+# This is a temporary fix
+# TODO: remove it when R will solve this problem!
+gettextf <- function(fmt, ..., domain = NULL)  {
+  return(sprintf(gettext(fmt, domain = domain), ...))
+}
+
 grid_arrange_shared_legend <- function(..., plotList = NULL, nrow = 1, ncol = length(list(...)), position = c("bottom", "right")) {
 
     if (is.null(plotList)) {
@@ -71,7 +77,7 @@ addAxis <- function(graph, breaks = NULL, name = waiver(), labels = waiver(), li
 
 }
 
-#' @title (Deprecated) draw an empty ggplot with just axes.
+#' @title Deprecated: use `ggplot2::ggplot() + ggplot2::scale_x|y_continuous(...)` instead.
 #'
 #' @param graph ggplot object.
 #' @param xName name for x-axis.
@@ -257,7 +263,7 @@ drawSmooth <- function(graph = NULL, dat = NULL, mapping = NULL, size = 2, metho
                        color = "gray", show.legend = FALSE, se = FALSE, alpha = 1, ...) {
 
     if (is.null(dat) && is.null(graph))
-        stop("Argument dat and graph cannot both be NULL.")
+        stop2("Argument dat and graph cannot both be NULL.")
 
     if (is.null(dat))
         dat <- ggplot2::ggplot_build(graph)$data[[1]][c("x", "y")]

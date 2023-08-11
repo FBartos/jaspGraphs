@@ -15,15 +15,7 @@
 # for multiple panel plots, examine https://github.com/zeehio/facetscales to manipulate individual axes.
 
 
-# TODO: copied from common, do this more elegantly!
-fromJSON  <- function(x) jsonlite::fromJSON(x, TRUE, FALSE, FALSE)
-toJSON    <- function(x) jsonlite::toJSON(x, auto_unbox = TRUE, digits = NA, null = "null")
-.extractErrorMessage <- function(error) {
 
-  split <- base::strsplit(as.character(error), ":")[[1]]
-  last <- split[[length(split)]]
-  stringr::str_trim(last)
-}
 
 
 
@@ -32,95 +24,19 @@ toJSON    <- function(x) jsonlite::toJSON(x, auto_unbox = TRUE, digits = NA, nul
 `%|NW|%` <- function(a, b) if (!(is.null(a) || is.waive(a))) a else b
 `%|W|%`  <- function(a, b) if (                !is.waive(a)) a else b
 
+isCoordFlipped <- function(x) inherits(x, "CoordFlip")
+
 validateOptions <- function(newOptions, oldOptions) {
 
   if (!is.list(newOptions)) {
-    stop("options should be an R list or a json string!")
+    stop2("options should be an R list or a json string!")
   }
 
   if (newOptions[["xAxis"]][["type"]] != oldOptions[["xAxis"]][["type"]] ||
       newOptions[["yAxis"]][["type"]] != oldOptions[["yAxis"]][["type"]]) {
-    stop("The axis type in the new options list does not match the graph!")
+    stop2("The axis type in the new options list does not match the graph!")
   }
 
-}
-
-#' @title Get the editable options for a graph
-#' @param graph a ggplot2 object
-#' @param asJSON should the list be converted to JSON?
-#'
-#' @export
-plotEditingOptions <- function(graph, asJSON = FALSE) {
-  UseMethod("plotEditingOptions", graph)
-}
-
-# TODO: is the 'gg' class even necessary?
-#' @export
-plotEditingOptions.gg <- function(graph, asJSON = FALSE) {
-  # ensures    that loading an edited graph returns the final set of options
-  if (!is.null(graph[["plot_env"]][[".____plotEditingOptions____"]][["oldOptions"]]))
-    return(graph[["plot_env"]][[".____plotEditingOptions____"]][["oldOptions"]])
-  return(plotEditingOptions.ggplot(graph, asJSON))
-}
-
-#' @export
-plotEditingOptions.ggplot <- function(graph, asJSON = FALSE) {
-
-  ggbuild <- ggplot_build(graph)
-  return(plotEditingOptions.ggplot_built(ggbuild, asJSON))
-
-}
-
-#' @export
-plotEditingOptions.ggplot_built <- function(graph, asJSON = FALSE) {
-
-  # only relevant for continuous scales?
-
-  e <- try({
-
-    opts <- graph[["layout"]][["panel_params"]]
-    axisTypes <- getAxisType(opts)
-
-    currentAxis <- graph[["layout"]][["get_scales"]](1L)
-
-    xSettings <- getAxisInfo(currentAxis[["x"]], opts, graph)
-    ySettings <- getAxisInfo(currentAxis[["y"]], opts, graph)
-
-    out <- list(xAxis = list(
-      type     = axisTypes[["x"]],
-      settings = xSettings
-    ), yAxis = list(
-      type     = axisTypes[["y"]],
-      settings = ySettings
-    )
-    )
-
-  }, silent = TRUE)
-
-  if (inherits(e, "try-error")) {
-    out <- list(error = paste("computing plotEditingOptions gave an error:", .extractErrorMessage(e)))
-    if (asJSON)
-      return(toJSON(out))
-    else
-      return(out)
-  }
-
-  if (asJSON) {
-    out <- try(toJSON(out), silent = TRUE)
-    if (inherits(out, "try-error"))
-      out <- toJSON(list(error = paste("converting plotEditingOptions to JSON gave an error:", .extractErrorMessage(out))))
-  }
-
-  return(out)
-}
-
-#' @export
-plotEditingOptions.default <- function(graph, asJSON = FALSE) {
-  out <- list(error = paste("cannot create plotEditingOptions for object of class:", paste(class(graph), collapse = ",")))
-  if (asJSON)
-    return(toJSON(out))
-  else
-    return(out)
 }
 
 optionsDiff <- function(new, old) {
@@ -155,11 +71,11 @@ optionsDiff <- function(new, old) {
 plotEditing <- function(graph, newOptions) {
 
   if (!is.ggplot(graph))
-    stop("graph should be a ggplot2")
+    stop2("graph should be a ggplot2")
 
   if (isTRUE(newOptions[["resetPlot"]])) {
     if (hasOriginalEditingOptions(graph)) {
-      return(Recall(graph, as.list(graph[["plot_env"]][[".____originalPlotEditingOptions____"]][["oldOptions"]])))
+      return(Recall(graph, as.list(graph[["plot_env"]][[".____originalPlotEditingOptions____"]])))
     } else {
       return(graph)
     }
@@ -177,20 +93,22 @@ plotEditing <- function(graph, newOptions) {
   # could be a loop over all scales from e.g., facetted plots
   currentAxis <- ggbuild[["layout"]][["get_scales"]](1L)
 
+  # origNewOptions is be saved in the plot environment, whereas the other code may modify newOptions
+  origNewOptions <- newOptions
+  if (isCoordFlipped(ggbuild[["layout"]][["coord"]])) {
+    currentAxis[["x"]][["position"]] <- remapPositionOfFlippedPlot(currentAxis[["x"]][["position"]])
+    currentAxis[["y"]][["position"]] <- remapPositionOfFlippedPlot(currentAxis[["y"]][["position"]])
+    newOptions[c("xAxis", "yAxis")] <- newOptions[c("yAxis", "xAxis")]
+  }
+
   graph <- graph + internalUpdateAxis(currentAxis[["x"]], newOptions[["xAxis"]][["settings"]])
   graph <- graph + internalUpdateAxis(currentAxis[["y"]], newOptions[["yAxis"]][["settings"]])
 
-  # if (length(diffOptions[["xAxis"]][["settings"]]) > 0L)
-  #   graph <- graph + internalUpdateAxis(currentAxis[["x"]], diffOptions[["xAxis"]][["settings"]])
-  #
-  # if (length(diffOptions[["yAxis"]][["settings"]]) > 0L)
-  #   graph <- graph + internalUpdateAxis(currentAxis[["y"]], diffOptions[["yAxis"]][["settings"]])
-
   # 'remember' if an edited plot had options set to automatic or manual
   newOptions[["resetPlot"]] <- FALSE
-  env <- list2env(list(oldOptions = newOptions), parent = emptyenv())
+  env <- list2env(list(oldOptions = origNewOptions), parent = emptyenv())
   if (!hasOriginalEditingOptions(graph))
-    graph[["plot_env"]][[".____originalPlotEditingOptions____"]] <- env
+    graph[["plot_env"]][[".____originalPlotEditingOptions____"]] <- oldOptions
   graph[["plot_env"]][[".____plotEditingOptions____"]] <- env
 
   return(graph)

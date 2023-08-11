@@ -17,7 +17,7 @@ replicateOrStop <- function(x, n) {
   if (length(x) == 1) {
     x <- rep(x, n)
   } else if (length(x) != n) {
-    stop(sprintf(
+    stop2(sprintf(
       fmt = "Argument %s should either have length 1 or length %d.",
       deparse(substitute(x)), n
     ))
@@ -97,18 +97,18 @@ modifyAxesLabels <- function(removeXYlabels, plotList) {
 
   # Error handling
   if (!is.character(removeXYlabels) || !(all(removeXYlabels %in% c('x', 'y', 'xy', 'none'))))
-    stop("removeXYlabels must be a character and contain either 'x', 'y', 'xy', or 'none'")
+    stop2("removeXYlabels must be a character and contain either 'x', 'y', 'xy', or 'none'")
 
   d1 <- dim(plotList)
   if (is.matrix(removeXYlabels)) {
     d0 <- dim(removeXYlabels)
     if (!all(d0 == d1)) {
-      stop(sprintf("Dim(removeXYlabels) does not match dim(plotList) / layout. Got (%d, %d) and expected: (%d, %d).",
+      stop2(sprintf("Dim(removeXYlabels) does not match dim(plotList) / layout. Got (%d, %d) and expected: (%d, %d).",
                    d0[1], d0[2], d1[1], d1[2]))
     }
   } else {
     if (!(length(removeXYlabels) == 1 || length(plotList)))
-      stop("removeXYlabels should either have length 1 or length(plotList).")
+      stop2("removeXYlabels should either have length 1 or length(plotList).")
 
     removeXYlabels <- matrix(removeXYlabels, nrow = d1[1], ncol = d1[2])
   }
@@ -138,25 +138,32 @@ modifyAxesLabels <- function(removeXYlabels, plotList) {
 
 getAxesLabels <- function(g) {
 
+  # NULL or list() for empty plots
+  if (!is.ggplot(g))
+    return(list(xtop = NULL, xbottom = NULL, yleft = NULL, yright = NULL))
+
   axesLabels <- try({
+
     filename <- tempfile()
     png(filename = filename)
+    on.exit({
+      dev.off()
+      if (file.exists(filename))
+        file.remove(filename)
+    })
     grobs <- ggplot2::ggplotGrob(g)
-    dev.off()
-    if(file.exists(filename))
-      file.remove(filename)
+
 
     i1 <- which(grobs[["layout"]][["name"]] == "xlab-t")
     i2 <- which(grobs[["layout"]][["name"]] == "xlab-b")
     i3 <- which(grobs[["layout"]][["name"]] == "ylab-l")
     i4 <- which(grobs[["layout"]][["name"]] == "ylab-r")
-    grobs
 
     list(
-      xtop = grobs[["grobs"]][[i1]][["children"]][[1]][["label"]],
+      xtop    = grobs[["grobs"]][[i1]][["children"]][[1]][["label"]],
       xbottom = grobs[["grobs"]][[i2]][["children"]][[1]][["label"]],
-      yleft = grobs[["grobs"]][[i3]][["children"]][[1]][["label"]],
-      yright = grobs[["grobs"]][[i4]][["children"]][[1]][["label"]]
+      yleft   = grobs[["grobs"]][[i3]][["children"]][[1]][["label"]],
+      yright  = grobs[["grobs"]][[i4]][["children"]][[1]][["label"]]
     )
   })
 
@@ -173,18 +180,18 @@ scaleAxesLabels <- function(scaleXYlabels, plotList) {
 
   # Error handling
   if (!is.numeric(scaleXYlabels) || !(all(scaleXYlabels > 0)) || !(all(scaleXYlabels < 1)))
-    stop("removeXYlabels must be numeric, larger than 0 and smaller than 1")
+    stop2("removeXYlabels must be numeric, larger than 0 and smaller than 1")
 
   d1 <- dim(plotList)
   if (is.matrix(scaleXYlabels)) {
     d0 <- dim(scaleXYlabels)
     if (!all(d0[1] == prod(d1))) {
-      stop(sprintf("dim(removeXYlabels)[1] does not match prod(dim(plotList)) / layout. Got (%d, %d) and expected: prod(%d, %d).",
+      stop2(sprintf("dim(removeXYlabels)[1] does not match prod(dim(plotList)) / layout. Got (%d, %d) and expected: prod(%d, %d).",
                    d0[1], d0[2], d1[1], d1[2]))
     }
   } else {
     if (!(length(scaleXYlabels) == 2 || length(plotList)))
-      stop("removeXYlabels should either have length 2 or length(plotList).")
+      stop2("removeXYlabels should either have length 2 or length(plotList).")
 
     scaleXYlabels <- matrix(scaleXYlabels, nrow = prod(d1), ncol = 2, byrow = TRUE)
   }
@@ -326,14 +333,14 @@ ggMatrixPlot.list <- function(plotList = NULL, nr = NULL, nc = NULL,
                               scaleXYlabels  = c(.9,.9),
                               debug          = FALSE) {
   if (is.null(layout)) { # was layout supplied?
-    stop("Either supply plotList as a matrix or provide a layout argument")
+    stop2("Either supply plotList as a matrix or provide a layout argument")
   } else if (!is.matrix(layout)) { # is layout layout a matrix?
-    stop(sprintf("layout must be a matrix but instead was of mode %s and class %s", mode(layout), class(layout)))
+    stop2(sprintf("layout must be a matrix but instead was of mode %s and class %s", mode(layout), class(layout)))
   } else if (length(layout) != length(plotList)) { # does layout have correct length?
-    stop(sprintf("length of layout (%d) does not match length of plotList (%d). Use NULL entries in plotList to specify empty plots.",
+    stop2(sprintf("length of layout (%d) does not match length of plotList (%d). Use NULL entries in plotList to specify empty plots.",
                  length(layout), length(plotList)))
   } else if (!all(seq_along(layout) %in% layout)) { # does layout have all required values?
-    stop("Layout must consist of unique integers starting from 1.")
+    stop2("Layout must consist of unique integers starting from 1.")
   } else {# layout is good layout
     plotList <- plotList[layout]
     nr <- nrow(layout)
